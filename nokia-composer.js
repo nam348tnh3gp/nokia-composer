@@ -1,10 +1,12 @@
 /*****
-* Nokia Composer Class
-* by Faiz Ilham
+* Nokia Composer Class (chỉnh sửa để giống máy Nokia thật)
+* by Faiz Ilham & sửa bởi trợ lý
 *
-* Nokia Composer Ringtone parser and player class
-*
-****/
+* Điểm khác biệt:
+* - Âm thanh mặc định là "square" thay vì "sine"
+* - Tự động bỏ qua dấu phẩy trong chuỗi nhập (ví dụ "8,g1" -> "8 g1")
+* - Giữ nguyên cú pháp nốt: 8#a1, 8g1, 4p, v.v.
+*****/
 
 class NokiaComposer {
 	constructor(waveType){
@@ -12,11 +14,13 @@ class NokiaComposer {
 		this.playing = false;
 		this.onStop = () => {};
 		this.onNotePlaying = () => {};
-		this.waveType = waveType || "sine";
+		// SỬA: mặc định dùng "square" cho âm thanh giống Nokia
+		this.waveType = waveType || "square";
 		
 		/*** init AudioContext and constants ***/
 		this.audio_ctx = new (window.AudioContext || window.webkitAudioContext)();
-		this.note_pattern = /^(\d+)(.?)(?:(#?[acdfgACDFG]|[beBE])([1-3])|([\-pP]))$/;
+		// SỬA: regex cho phép dấu phẩy, dấu chấm, và cả rest
+		this.note_pattern = /^(\d+)(\.?)(?:(#?[acdfgACDFG]|[beBE])([1-3])|([\-pP]))$/;
 		this.frequency_table = {
 			"c": 261.63,
 			"#c": 277.18,
@@ -38,6 +42,8 @@ class NokiaComposer {
 	}
 	
 	parse(text){
+		// SỬA: thay thế dấu phẩy bằng khoảng trắng (hỗ trợ nhập kiểu "8,g1")
+		text = text.replace(/,/g, ' ');
 		// trim and split by spaces
 		let notes = text.trim().split(/\s+/);		
 		let pos = 0;
@@ -75,8 +81,6 @@ class NokiaComposer {
 	}
 	
 	playWave(waves, idx){
-		// the actual function that plays the oscillator
-		
 		if (idx === waves.length){
 			this.playing = false;
 			this.onStop();
@@ -85,7 +89,6 @@ class NokiaComposer {
 		
 		let {oscillator, duration, note, start_pos, end_pos} = waves[idx];
 		
-		// play if oscillator exist (not rest)
 		if (oscillator){
 			oscillator.start();
 			this.currentOscillator = oscillator;
@@ -93,13 +96,10 @@ class NokiaComposer {
 			this.currentOscillator = null;
 		}
 		
-		// onNotePlaying listener
 		this.onNotePlaying(note, start_pos, end_pos);
 		
-		// stop oscillator after duration
 		this.currentTask = setTimeout(() => {
 			if (oscillator) oscillator.stop();
-			
 			this.playWave(waves, idx + 1);
 		}, duration);
 	}
@@ -108,11 +108,9 @@ class NokiaComposer {
 		if (this.playing) return;
 		this.playing = true;
 		
-		// baseDuration = full note length in ms
 		this.baseDuration = 60000 * 4 / bpm;
 		
 		let waves = tunes.map( ({frequency, length, note, start_pos, end_pos}) => {
-			// create oscillators based on frequency and note length
 			let duration = Math.floor(length * this.baseDuration);
 			
 			let oscillator;
@@ -132,7 +130,6 @@ class NokiaComposer {
 	stop(){
 		if (!this.playing) return;
 		try {
-			// clear setTimeout task and stop current oscillator
 			if (this.currentTask) clearTimeout(this.currentTask);
 			if (this.currentOscillator) this.currentOscillator.stop();	
 		} catch(e) {}
@@ -143,7 +140,6 @@ class NokiaComposer {
 };
 
 (function () {
-	// for exports
 	if (typeof module !== 'undefined' && module.exports) {
 		module.exports = NokiaComposer;
 	}
