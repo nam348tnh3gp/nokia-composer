@@ -1,9 +1,9 @@
 /*****
-* Nokia Composer Class – fixed for original Nokia syntax
-* by Faiz Ilham (modified)
+* Nokia Composer Class (fixed for Nokia format)
+* by Faiz Ilham – fixed by assistant
 *
-* Hỗ trợ định dạng: "8#a1", "8,g1", "8f1", "8c2", v.v.
-* Dấu phẩy (,) hoặc dấu chấm (.) đều là dotted note.
+* Supports: duration + optional dot + [note + octave] or rest 'p'
+* Example: "8#a1 8.g1 4c2 2p"
 *****/
 
 class NokiaComposer {
@@ -15,8 +15,8 @@ class NokiaComposer {
 		
 		this.audio_ctx = new (window.AudioContext || window.webkitAudioContext)();
 		
-		// Regex sửa lại: bắt số, dấu phẩy/chấm, nốt (có #), octave (1-3) hoặc dấu nghỉ (-, p, P)
-		this.note_pattern = /^(\d+)([.,]?)(?:(#?[a-gA-G])([1-3])|([\-pP]))$/;
+		// Fixed regex: captures duration, dot, note (with optional #), octave, or rest 'p'
+		this.note_pattern = /^(\d+)(\.?)(?:([#]?[a-gA-G])([1-3])|([pP]))$/;
 		
 		this.frequency_table = {
 			"c": 261.63,
@@ -41,8 +41,9 @@ class NokiaComposer {
 	parse(text){
 		let notes = text.trim().split(/\s+/);
 		let pos = 0;
+		let tunes = [];
 		
-		let tunes = notes.map((note, idx) => {
+		for (let note of notes) {
 			let start_pos = text.indexOf(note, pos);
 			let end_pos = start_pos + note.length;
 			pos = end_pos;
@@ -54,24 +55,22 @@ class NokiaComposer {
 			
 			let [, length_portion, dot, base_note, octave, rest] = matches;
 			
-			// trường độ
+			// note length (1 = whole, 2 = half, 4 = quarter, 8 = eighth, etc.)
 			let length = 1 / parseInt(length_portion, 10);
-			if (dot) length *= 1.5;   // dấu chấm hoặc dấu phẩy đều là dotted note
+			if (dot === '.') length *= 1.5;
 			
 			let frequency = 0;
-			if (base_note) {
-				// chuẩn hóa tên nốt viết thường
-				let noteName = base_note.toLowerCase();
-				let freqBase = this.frequency_table[noteName];
-				if (!freqBase) throw {message: "Unknown note", token: note};
-				// Nokia: octave 1 = C4 (261.63) - nhân hệ số 2^(octave-1)
-				frequency = freqBase * Math.pow(2, parseInt(octave,10) - 1);
-			} else if (rest) {
-				frequency = 0; // nghỉ
+			if (!rest) {
+				let key = base_note.toLowerCase(); // e.g. "#a" or "a"
+				let freq = this.frequency_table[key];
+				if (!freq) {
+					throw {message: "Unknown note", token: note, start_pos, end_pos};
+				}
+				frequency = freq * (1 << (parseInt(octave, 10) - 1));
 			}
 			
-			return {frequency, length, note, start_pos, end_pos};
-		});
+			tunes.push({frequency, length, note, start_pos, end_pos});
+		}
 		
 		return tunes;
 	}
@@ -86,12 +85,7 @@ class NokiaComposer {
 		let {oscillator, duration, note, start_pos, end_pos} = waves[idx];
 		
 		if (oscillator){
-			// AudioContext cần được resume nếu chưa
-			if (this.audio_ctx.state === "suspended") {
-				this.audio_ctx.resume().then(() => oscillator.start());
-			} else {
-				oscillator.start();
-			}
+			oscillator.start();
 			this.currentOscillator = oscillator;
 		} else {
 			this.currentOscillator = null;
@@ -109,21 +103,13 @@ class NokiaComposer {
 		if (this.playing) return;
 		this.playing = true;
 		
-		// Nếu AudioContext chưa active, resume (cần tương tác người dùng trước)
-		if (this.audio_ctx.state === "suspended") {
-			this.audio_ctx.resume().then(() => this._playInternal(tunes, bpm));
-		} else {
-			this._playInternal(tunes, bpm);
-		}
-	}
-	
-	_playInternal(tunes, bpm){
-		let baseDuration = 60000 * 4 / bpm;
+		// base duration of a whole note in milliseconds
+		this.baseDuration = 60000 * 4 / bpm;
 		
 		let waves = tunes.map(({frequency, length, note, start_pos, end_pos}) => {
-			let duration = Math.floor(length * baseDuration);
+			let duration = Math.floor(length * this.baseDuration);
 			let oscillator = null;
-			if (frequency > 0){
+			if (frequency) {
 				oscillator = this.audio_ctx.createOscillator();
 				oscillator.type = this.waveType;
 				oscillator.frequency.value = frequency;
@@ -145,18 +131,15 @@ class NokiaComposer {
 		this.onStop();
 	}
 	
-	// Tiện ích: parse + play chỉ với text và bpm
-	loadAndPlay(text, bpm = 120) {
-		try {
-			const tunes = this.parse(text);
-			this.play(tunes, bpm);
-		} catch(e) {
-			console.error(e);
+	// Helper: resume AudioContext (required by browsers)
+	async resumeContext() {
+		if (this.audio_ctx.state === 'suspended') {
+			await this.audio_ctx.resume();
 		}
 	}
 }
 
-// Export cho cả browser và Node
+// Export for Node.js or browser
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = NokiaComposer;
 }
